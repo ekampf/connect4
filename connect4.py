@@ -204,9 +204,7 @@ class ConnectFour:
                 row, col = self.make_move(col)
 
             except Exception as e:
-                print(
-                    f"Error from player {self.current_player.symbol} ({type(self.current_player).__name__}): {e}"
-                )
+                print(f"Error from player {self.current_player.symbol}: {e}")
                 return (
                     self.player1
                     if self.current_player == self.player2
@@ -417,6 +415,210 @@ class LousyPlayer(Player):
         return False
 
 
+from copy import deepcopy
+
+
+class MinimaxPlayer(Player):
+    def __init__(self, symbol: str, depth: int = 4):
+        super().__init__(symbol)
+        self.depth = depth  # How many moves ahead the AI should look
+
+    def get_move(self, state: GameState) -> int:
+        _, best_col = self.minimax(state, self.depth, -math.inf, math.inf, True)
+        return best_col
+
+    def minimax(
+        self, state: GameState, depth: int, alpha: float, beta: float, maximizing: bool
+    ):
+        valid_moves = self.get_valid_moves(state.board)
+        if depth == 0 or not valid_moves or self.is_terminal(state):
+            return self.evaluate(state), None
+
+        if maximizing:
+            max_eval = -math.inf
+            best_col = random.choice(valid_moves)
+            for col in valid_moves:
+                new_state = self.simulate_move(state, col, self.symbol)
+                eval, _ = self.minimax(new_state, depth - 1, alpha, beta, False)
+                if eval > max_eval:
+                    max_eval = eval
+                    best_col = col
+
+                alpha = max(alpha, eval)
+                if beta <= alpha:
+                    break  # Alpha-beta pruning
+
+            return max_eval, best_col
+        else:
+            min_eval = math.inf
+            best_col = random.choice(valid_moves)
+            opponent_symbol = "X" if self.symbol == "O" else "O"
+            for col in valid_moves:
+                new_state = self.simulate_move(state, col, opponent_symbol)
+                eval, _ = self.minimax(new_state, depth - 1, alpha, beta, True)
+                if eval < min_eval:
+                    min_eval = eval
+                    best_col = col
+                beta = min(beta, eval)
+                if beta <= alpha:
+                    break  # Alpha-beta pruning
+
+            return min_eval, best_col
+
+    def get_valid_moves(self, board):
+        return [col for col in range(len(board[0])) if board[0][col] == " "]
+
+    def simulate_move(self, state: GameState, col: int, symbol: str) -> GameState:
+        new_board = deepcopy(state.board)
+        for row in range(len(new_board) - 1, -1, -1):
+            if new_board[row][col] == " ":
+                new_board[row][col] = symbol
+                break
+        return GameState(new_board, symbol, (row, col))
+
+    def is_terminal(self, state: GameState) -> bool:
+        return self.check_winner(state.board, state.last_move) or all(
+            cell != " " for cell in state.board[0]
+        )
+
+    def evaluate(self, state: GameState) -> int:
+        if self.check_winner(state.board, state.last_move):
+            return 1000 if state.current_player == self.symbol else -1000
+
+        return self.score_position(state.board, self.symbol) - self.score_position(
+            state.board, "X" if self.symbol == "O" else "O"
+        )
+
+    def score_position(self, board, symbol):
+        score = 0
+        for row in range(len(board)):
+            for col in range(len(board[0])):
+                if board[row][col] == symbol:
+                    score += self.evaluate_position(board, row, col, symbol)
+
+        return score
+
+    def evaluate_position(self, board, row, col, symbol):
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        score = 0
+        for dr, dc in directions:
+            count = 1
+            for i in range(1, 4):
+                r, c = row + dr * i, col + dc * i
+                if (
+                    0 <= r < len(board)
+                    and 0 <= c < len(board[0])
+                    and board[r][c] == symbol
+                ):
+                    count += 1
+                else:
+                    break
+            score += 10 ** (count - 1)  # Exponential scoring
+        return score
+
+    def check_winner(self, board, last_move):
+        if not last_move:
+            return False
+        row, col = last_move
+        symbol = board[row][col]
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        for dr, dc in directions:
+            count = 1
+            for i in range(1, 4):
+                r, c = row + dr * i, col + dc * i
+                if (
+                    0 <= r < len(board)
+                    and 0 <= c < len(board[0])
+                    and board[r][c] == symbol
+                ):
+                    count += 1
+                else:
+                    break
+            for i in range(1, 4):
+                r, c = row - dr * i, col - dc * i
+                if (
+                    0 <= r < len(board)
+                    and 0 <= c < len(board[0])
+                    and board[r][c] == symbol
+                ):
+                    count += 1
+                else:
+                    break
+            if count >= 4:
+                return True
+        return False
+
+
+class NeedMoreGluePlayer(Player):
+    def get_move(self, state: GameState) -> int:
+        columns = len(state.board[0])
+        rows = len(state.board)
+
+        # First check for winning moves
+        for col in range(columns):
+            if state.board[0][col] != " ":
+                continue
+
+            # Find row where piece would land
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != " ":
+                row -= 1
+
+            # Try move
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = self.symbol
+
+            # Check if this move wins
+            if self.check_winner(test_board, row, col):
+                return col
+
+        # Then check for blocking moves
+        opponent = "O" if self.symbol == "X" else "X"
+        for col in range(columns):
+            if state.board[0][col] != " ":
+                continue
+
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != " ":
+                row -= 1
+
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = opponent
+
+            if self.check_winner(test_board, row, col):
+                return col
+
+        # Otherwise, pick random valid move
+        valid_moves = [col for col in range(columns) if state.board[0][col] == " "]
+        return random.choice(valid_moves)
+
+    def check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if there's a winner on the test board"""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+        columns = len(board[0])
+        rows = len(board)
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while 0 <= r < rows and 0 <= c < columns and board[r][c] == symbol:
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while 0 <= r < rows and 0 <= c < columns and board[r][c] == symbol:
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 4:
+                return True
+        return False
+
+
 class Tournament:
     """Runs a tournament between multiple Connect Four strategies"""
 
@@ -524,7 +726,7 @@ class Tournament:
 
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [RandomPlayer, SimplePlayer, LousyPlayer]
+    strategies = [SimplePlayer, MinimaxPlayer]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
