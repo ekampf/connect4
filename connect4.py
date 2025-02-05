@@ -417,6 +417,186 @@ class LousyPlayer(Player):
         return False
 
 
+import math
+
+import random
+import math
+from typing import List
+
+import random
+import math
+import time
+from typing import List
+
+import random
+import math
+import time
+from typing import List
+
+
+class Bob(Player):
+    """Improved AI: Uses minimax with alpha-beta pruning, advanced heuristics, and dynamic depth."""
+
+    def __init__(self, symbol, depth=4):
+        super().__init__(symbol)
+        self.depth = depth  # Search depth for minimax
+
+    def get_move(self, state: GameState) -> int:
+        board = np.array(state.board)  # Convert to NumPy array for efficiency
+
+        # 1. Check for immediate winning move
+        for col in self.get_valid_moves(board):
+            row = self.get_drop_row(board, col)
+            if row is None:
+                continue
+
+            board[row, col] = self.symbol
+            if self.check_winner(board, row, col):
+                return col  # Win immediately
+            board[row, col] = ' '  # Undo test move
+
+        # 2. Check for opponent's winning move and block it
+        opponent = 'O' if self.symbol == 'X' else 'X'
+        for col in self.get_valid_moves(board):
+            row = self.get_drop_row(board, col)
+            if row is None:
+                continue
+
+            board[row, col] = opponent
+            if self.check_winner(board, row, col):
+                return col  # Block the opponent
+            board[row, col] = ' '  # Undo test move
+
+        # 3. Use minimax with alpha-beta pruning to find the best move
+        best_move, _ = self.minimax(board, self.depth, -float('inf'), float('inf'), True)
+        return best_move if best_move is not None else random.choice(self.get_valid_moves(board))
+
+    def minimax(self, board, depth, alpha, beta, maximizing_player):
+        """Minimax algorithm with alpha-beta pruning."""
+        valid_moves = self.get_valid_moves(board)
+
+        # Base cases: terminal state or depth limit reached
+        if depth == 0 or not valid_moves:
+            return None, self.evaluate_board(board)
+
+        if maximizing_player:
+            max_eval = -float('inf')
+            best_move = None
+
+            for col in valid_moves:
+                row = self.get_drop_row(board, col)
+                if row is None:
+                    continue
+
+                board[row, col] = self.symbol
+                _, eval = self.minimax(board, depth - 1, alpha, beta, False)
+                board[row, col] = ' '  # Undo test move
+
+                if eval > max_eval:
+                    max_eval = eval
+                    best_move = col
+
+                alpha = max(alpha, eval)
+                if beta <= alpha:
+                    break  # Beta cutoff
+
+            return best_move, max_eval
+        else:
+            min_eval = float('inf')
+            best_move = None
+
+            for col in valid_moves:
+                row = self.get_drop_row(board, col)
+                if row is None:
+                    continue
+
+                board[row, col] = 'O' if self.symbol == 'X' else 'X'
+                _, eval = self.minimax(board, depth - 1, alpha, beta, True)
+                board[row, col] = ' '  # Undo test move
+
+                if eval < min_eval:
+                    min_eval = eval
+                    best_move = col
+
+                beta = min(beta, eval)
+                if beta <= alpha:
+                    break  # Alpha cutoff
+
+            return best_move, min_eval
+
+    def evaluate_board(self, board):
+        """Evaluate the board position for the AI player."""
+        score = 0
+
+        # Favor center control
+        center_col = board.shape[1] // 2
+        for col in range(board.shape[1]):
+            if board[0, col] == ' ':
+                score += 3 - abs(center_col - col)
+
+        # Evaluate connections
+        for row in range(board.shape[0]):
+            for col in range(board.shape[1]):
+                if board[row, col] == self.symbol:
+                    score += self.count_connections(board, row, col)
+                elif board[row, col] != ' ':
+                    score -= self.count_connections(board, row, col)
+
+        return score
+
+    def count_connections(self, board, row, col):
+        """Counts connected pieces for a given position."""
+        symbol = board[row, col]
+        directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
+        total = 0
+
+        for dr, dc in directions:
+            count = 1
+            for i in range(1, 4):
+                r, c = row + dr * i, col + dc * i
+                if 0 <= r < board.shape[0] and 0 <= c < board.shape[1] and board[r, c] == symbol:
+                    count += 1
+                else:
+                    break
+            total += count ** 2  # Favor longer streaks
+
+        return total
+
+    def get_valid_moves(self, board):
+        """Returns a list of valid (non-full) columns."""
+        return [col for col in range(board.shape[1]) if board[0, col] == ' ']
+
+    def get_drop_row(self, board, col):
+        """Find the lowest available row for a given column."""
+        for row in range(board.shape[0] - 1, -1, -1):
+            if board[row, col] == ' ':
+                return row
+        return None
+
+    def check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if there's a winner on the test board."""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while 0 <= r < board.shape[0] and 0 <= c < board.shape[1] and board[r][c] == symbol:
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while 0 <= r < board.shape[0] and 0 <= c < board.shape[1] and board[r][c] == symbol:
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 4:
+                return True
+        return False
+
 class Tournament:
     """Runs a tournament between multiple Connect Four strategies"""
 
@@ -524,7 +704,7 @@ class Tournament:
 
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [RandomPlayer, SimplePlayer, LousyPlayer]
+    strategies = [SimplePlayer, Bob]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
