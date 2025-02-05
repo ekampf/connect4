@@ -1,10 +1,13 @@
-import random
-import signal
-import time
 from abc import ABC, abstractmethod
-from contextlib import contextmanager
+import random
+import time
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+import numpy as np
+import math
+
+import signal
+from contextlib import contextmanager
 
 
 class TimeoutException(Exception):
@@ -41,7 +44,8 @@ class Player(ABC):
 
     @abstractmethod
     def get_move(self, state: GameState) -> int:
-        """Given the current game state, return the column (0-6) to play in
+        """
+        Given the current game state, return the column (0-6) to play in
         Must return a valid move (column that isn't full)
         """
         pass
@@ -151,7 +155,7 @@ class ConnectFour:
         BLUE = "\033[94m"
 
         # Print column numbers
-        print("\n " + BLUE + " ".join(str(i) for i in range(self.columns)) + RESET)
+        print("\n " + BLUE + " ".join((str(i) for i in range(self.columns))) + RESET)
         print(BLUE + "--" * self.columns + RESET)
 
         # Print board with colored pieces
@@ -658,7 +662,7 @@ class Tournament:
 
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, WinningPlayer]
+    strategies = [RandomPlayer, SimplePlayer, LousyPlayer]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
