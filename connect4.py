@@ -662,7 +662,7 @@ class Tournament:
 
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [RandomPlayer, SimplePlayer, LousyPlayer]
+    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, WinningPlayer]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
