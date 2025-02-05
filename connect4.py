@@ -1037,6 +1037,144 @@ class NeedMoreGluePlayer(Player):
         return False
 
 
+class WinningPlayer(Player):
+    """A Connect 4 player that prioritizes winning moves, blocks opponents, and picks strong positions."""
+
+    def get_move(self, state: GameState) -> int:
+        columns = len(state.board[0])
+        valid_moves = [col for col in range(columns) if state.board[0][col] == " "]
+
+        # Check for a winning move
+        for col in valid_moves:
+            if self.is_winning_move(state, col, self.symbol):
+                return col
+
+        # Block opponent's winning move
+        opponent_symbol = "X" if self.symbol == "O" else "O"
+        for col in valid_moves:
+            if self.is_winning_move(state, col, opponent_symbol):
+                return col
+
+        # Prevent opponent from stacking vertically
+        for col in valid_moves:
+            if self.is_dangerous_stack(state, col, opponent_symbol):
+                return col
+
+        # Block opponent from forming three in a row, column, or diagonal
+        for col in valid_moves:
+            if self.is_threatening_three(state, col, opponent_symbol):
+                return col
+
+        # Play in the center if possible (strongest position)
+        center_col = columns // 2
+        if center_col in valid_moves:
+            return center_col
+
+        # Play in columns closest to the center
+        sorted_moves = sorted(valid_moves, key=lambda x: abs(x - center_col))
+        return sorted_moves[0]
+
+    def is_winning_move(self, state: GameState, col: int, symbol: str) -> bool:
+        """Check if playing in a given column results in a win."""
+        row = self.get_next_row(state.board, col)
+        if row is None:
+            return False
+
+        temp_board = [r[:] for r in state.board]
+        temp_board[row][col] = symbol
+        return self.check_winner(temp_board, row, col)
+
+    def is_dangerous_stack(self, state: GameState, col: int, symbol: str) -> bool:
+        """Check if the opponent is about to stack four vertically."""
+        row = self.get_next_row(state.board, col)
+        if row is None or row < 3:
+            return False
+
+        count = 0
+        for r in range(row, max(row - 4, -1), -1):
+            if state.board[r][col] == symbol:
+                count += 1
+            else:
+                break
+
+        return count >= 3
+
+    def is_threatening_three(self, state: GameState, col: int, symbol: str) -> bool:
+        """Check if the opponent is about to form three in a row, column, or diagonal."""
+        row = self.get_next_row(state.board, col)
+        if row is None:
+            return False
+
+        temp_board = [r[:] for r in state.board]
+        temp_board[row][col] = symbol
+        return self.check_threat(temp_board, row, col)
+
+    def check_threat(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if placing a piece at (row, col) sets up a three-in-a-row threat."""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (
+                0 <= r < len(board) and 0 <= c < len(board[0]) and board[r][c] == symbol
+            ):
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (
+                0 <= r < len(board) and 0 <= c < len(board[0]) and board[r][c] == symbol
+            ):
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 3:
+                return True
+
+        return False
+
+    def get_next_row(self, board: List[List[str]], col: int) -> Optional[int]:
+        """Find the next available row in the given column."""
+        for row in range(len(board) - 1, -1, -1):
+            if board[row][col] == " ":
+                return row
+        return None
+
+    def check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if placing a piece at (row, col) creates a winning condition."""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (
+                0 <= r < len(board) and 0 <= c < len(board[0]) and board[r][c] == symbol
+            ):
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (
+                0 <= r < len(board) and 0 <= c < len(board[0]) and board[r][c] == symbol
+            ):
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 4:
+                return True
+
+        return False
+
+
 class Tournament:
     """Runs a tournament between multiple Connect Four strategies"""
 
@@ -1144,7 +1282,7 @@ class Tournament:
 
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, MCTSPlayer, Bob, FlossyPlayer, NeedMoreGluePlayer]
+    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, MCTSPlayer, Bob, FlossyPlayer, NeedMoreGluePlayer, WinningPlayer]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
