@@ -1,3 +1,4 @@
+import copy
 from abc import ABC, abstractmethod
 import random
 import time
@@ -423,7 +424,7 @@ class SophiesPlayer(Player):
 
         for move in valid_moves:
             new_state = self.make_move(state, move, self.symbol)
-            score = self.alpha_beta(new_state, depth=2, alpha=alpha, beta=beta, maximizing=False)
+            score = self.alpha_beta(new_state, depth=3, alpha=alpha, beta=beta, maximizing=False)
             if score > best_score:
                 best_score = score
                 best_move = move
