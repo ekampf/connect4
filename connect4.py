@@ -1174,6 +1174,235 @@ class WinningPlayer(Player):
 
         return False
 
+class MinMaxPlayer(Player):
+    """
+    Implements an optimal strategy for Connect Four using MinMax with Alpha-Beta pruning
+    """
+
+    def __init__(self, symbol: str, max_depth: int = 5):
+        super().__init__(symbol)
+        self.max_depth = max_depth
+        self.opponent_symbol = "O" if symbol == "X" else "X"
+
+        # Scoring weights for position evaluation
+        self.weights = {
+            "win": 100000,
+            "three_in_line": 100,
+            "two_in_line": 10,
+            "center_control": 3,
+        }
+
+    def get_move(self, state: GameState) -> int:
+        columns = len(state.board[0])
+        rows = len(state.board)
+        board = np.array(
+            [[" " if cell == " " else cell for cell in row] for row in state.board]
+        )
+        _, best_move = self.minimax(
+            board, columns, rows, self.max_depth, -math.inf, math.inf, True
+        )
+        return best_move
+
+    def minimax(
+        self,
+        board: np.ndarray,
+        columns: int,
+        rows: int,
+        depth: int,
+        alpha: float,
+        beta: float,
+        maximizing_player: bool,
+    ) -> Tuple[float, Optional[int]]:
+        """
+        Implements minimax algorithm with alpha-beta pruning
+        Returns: (score, column)
+        """
+        # Check terminal conditions
+        winner = self.check_winner(board)
+        if winner:
+            if winner == self.symbol:
+                return (self.weights["win"], None)
+            else:
+                return (-self.weights["win"], None)
+
+        if depth == 0:
+            return (self.evaluate_position(board), None)
+
+        valid_moves = self.get_valid_moves(board)
+        if not valid_moves:  # Draw
+            return (0, None)
+
+        if maximizing_player:
+            value = -math.inf
+            column = valid_moves[0]
+
+            for col in valid_moves:
+                board_copy = board.copy()
+                self.make_move(board_copy, col, self.symbol)
+
+                new_score, _ = self.minimax(
+                    board_copy, columns, rows, depth - 1, alpha, beta, False
+                )
+
+                if new_score > value:
+                    value = new_score
+                    column = col
+
+                alpha = max(alpha, value)
+                if alpha >= beta:
+                    break
+
+            return value, column
+
+        else:
+            value = math.inf
+            column = valid_moves[0]
+
+            for col in valid_moves:
+                board_copy = board.copy()
+                self.make_move(board_copy, col, self.opponent_symbol)
+
+                new_score, _ = self.minimax(
+                    board_copy, columns, rows, depth - 1, alpha, beta, True
+                )
+
+                if new_score < value:
+                    value = new_score
+                    column = col
+
+                beta = min(beta, value)
+                if alpha >= beta:
+                    break
+
+            return value, column
+
+    def evaluate_position(self, board: np.ndarray) -> float:
+        """
+        Evaluates the current board position
+        Uses multiple heuristics for position strength
+        """
+        score = 0
+
+        # Center control preference
+        center_col = board[:, 3]
+        score += np.sum(center_col == self.symbol) * self.weights["center_control"]
+        score -= (
+            np.sum(center_col == self.opponent_symbol) * self.weights["center_control"]
+        )
+
+        # Check for potential wins (3 in a row with space for 4)
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        rows, cols = board.shape
+
+        for r in range(rows):
+            for c in range(cols):
+                if board[r, c] == " ":
+                    continue
+
+                for dr, dc in directions:
+                    score += self.evaluate_line(board, r, c, dr, dc)
+
+        return score
+
+    def evaluate_line(
+        self, board: np.ndarray, row: int, col: int, row_dir: int, col_dir: int
+    ) -> float:
+        """
+        Evaluates a line starting from (row, col) in direction (row_dir, col_dir)
+        """
+        rows, cols = board.shape
+        line = []
+
+        # Get 4 positions in the direction if possible
+        for i in range(4):
+            r = row + i * row_dir
+            c = col + i * col_dir
+
+            if 0 <= r < rows and 0 <= c < cols:
+                line.append(board[r, c])
+            else:
+                return 0
+
+        if len(line) < 4:
+            return 0
+
+        # Convert line to string for pattern matching
+        line_str = "".join(line)
+        score = 0
+
+        # Check for my patterns
+        my_three = self.symbol * 3 + " "
+        my_two = self.symbol * 2 + " " * 2
+
+        opp_three = self.opponent_symbol * 3 + " "
+        opp_two = self.opponent_symbol * 2 + " " * 2
+
+        # Score my patterns
+        if my_three in line_str or my_three[::-1] in line_str:
+            score += self.weights["three_in_line"]
+        if my_two in line_str or my_two[::-1] in line_str:
+            score += self.weights["two_in_line"]
+
+        # Penalize opponent patterns
+        if opp_three in line_str or opp_three[::-1] in line_str:
+            score -= (
+                self.weights["three_in_line"] * 1.2
+            )  # Extra penalty for opponent threats
+        if opp_two in line_str or opp_two[::-1] in line_str:
+            score -= self.weights["two_in_line"]
+
+        return score
+
+    def get_valid_moves(self, board: np.ndarray) -> List[int]:
+        """Returns list of valid moves (non-full columns)"""
+        return [col for col in range(board.shape[1]) if board[0, col] == " "]
+
+    def make_move(self, board: np.ndarray, col: int, symbol: str):
+        """Makes a move on the board (modifies in place)"""
+        for row in range(board.shape[0] - 1, -1, -1):
+            if board[row, col] == " ":
+                board[row, col] = symbol
+                return
+
+    def check_winner(self, board: np.ndarray) -> Optional[str]:
+        """Check if there's a winner on the board"""
+        # Check horizontal
+        for row in range(board.shape[0]):
+            for col in range(board.shape[1] - 3):
+                if board[row, col] != " " and len(set(board[row, col : col + 4])) == 1:
+                    return board[row, col]
+
+        # Check vertical
+        for row in range(board.shape[0] - 3):
+            for col in range(board.shape[1]):
+                if board[row, col] != " " and len(set(board[row : row + 4, col])) == 1:
+                    return board[row, col]
+
+        # Check diagonal (positive slope)
+        for row in range(board.shape[0] - 3):
+            for col in range(board.shape[1] - 3):
+                if board[row, col] != " ":
+                    if all(
+                        board[row + i, col + i] == board[row, col] for i in range(4)
+                    ):
+                        return board[row, col]
+
+        # Check diagonal (negative slope)
+        for row in range(3, board.shape[0]):
+            for col in range(board.shape[1] - 3):
+                if board[row, col] != " ":
+                    if all(
+                        board[row - i, col + i] == board[row, col] for i in range(4)
+                    ):
+                        return board[row, col]
+
+        return None
+
+
+class EranFastMinMaxPlayer(MinMaxPlayer):
+    def __init__(self, symbol: str, max_depth: int = 2):
+        super().__init__(symbol, max_depth)
+
 
 class Tournament:
     """Runs a tournament between multiple Connect Four strategies"""
@@ -1280,9 +1509,10 @@ class Tournament:
         print("-" * 80)
 
 
+
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, MCTSPlayer, Bob, FlossyPlayer, NeedMoreGluePlayer, WinningPlayer]
+    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, MCTSPlayer, Bob, FlossyPlayer, NeedMoreGluePlayer, WinningPlayer, EranFastMinMaxPlayer]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
