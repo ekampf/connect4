@@ -202,6 +202,167 @@ class ConnectFour:
             if self.delay:
                 time.sleep(self.delay)
 
+class MCTSNode:
+    def __init__(self, state: GameState, parent=None, move=None):
+        self.state = state
+        self.parent = parent
+        self.move = move  # Move that led to this state
+        self.children = {}
+        self.wins = 0
+        self.visits = 0
+        self.untried_moves = self._get_valid_moves()
+        
+    def _get_valid_moves(self) -> List[int]:
+        """Get list of valid moves from current state"""
+        return [col for col in range(len(self.state.board[0])) 
+                if self.state.board[0][col] == ' ']
+    
+    def ucb1(self, exploration: float = 1.41) -> float:
+        """Calculate UCB1 value for this node"""
+        if self.visits == 0:
+            return float('inf')
+        return (self.wins / self.visits + 
+                exploration * math.sqrt(math.log(self.parent.visits) / self.visits))
+
+# The MCTSPlayer uses the Monte Carlo Tree Search algorithm, which is a probabilistic search algorithm that finds optimal decisions by building a search tree through random sampling of the decision space. The algorithm consists of four main phases that repeat until a time limit is reached:
+#
+# 1. **Selection**
+#    - Starting from the root node (current game state)
+#    - Uses UCB1 (Upper Confidence Bound 1) formula to balance exploration vs exploitation
+#    - Traverses down the tree, selecting nodes with highest UCB1 scores
+#    - Continues until reaching a node that hasn't been fully explored
+#
+# 2. **Expansion**
+#    - When reaching a node that hasn't been fully explored
+#    - Creates a new child node for one of the unexplored moves
+#    - Adds this new node to the tree
+#
+# 3. **Simulation**
+#    - From the new node position
+#    - Plays out a complete game using random moves
+#    - This is called a "rollout" or "playout"
+#
+# 4. **Backpropagation**
+#    - Takes the result of the simulation
+#    - Updates statistics (visits and wins) for all nodes in the path from the simulated node back to the root
+
+
+class MCTSPlayer(Player):
+    """Monte Carlo Tree Search player implementation"""
+    def __init__(self, symbol: str, simulation_time: float = 0.9):
+        super().__init__(symbol)
+        self.simulation_time = simulation_time
+    
+    def get_move(self, state: GameState) -> int:
+        root = MCTSNode(state)
+        end_time = time.time() + self.simulation_time
+        
+        while time.time() < end_time:
+            # Selection
+            node = root
+            temp_board = [row[:] for row in state.board]
+            current_player = self.symbol
+            
+            # Select a path through the tree
+            while node.untried_moves == [] and node.children:
+                node = max(node.children.values(), key=lambda n: n.ucb1())
+                if node.move is not None:
+                    row = self._get_next_row(temp_board, node.move)
+                    temp_board[row][node.move] = current_player
+                    current_player = 'O' if current_player == 'X' else 'X'
+            
+            # Expansion
+            if node.untried_moves:
+                col = random.choice(node.untried_moves)
+                row = self._get_next_row(temp_board, col)
+                temp_board[row][col] = current_player
+                current_player = 'O' if current_player == 'X' else 'X'
+                
+                new_state = GameState(
+                    board=[row[:] for row in temp_board],
+                    current_player=current_player
+                )
+                node.untried_moves.remove(col)
+                node.children[col] = MCTSNode(new_state, parent=node, move=col)
+                node = node.children[col]
+            
+            # Simulation
+            winner = self._simulate_game(temp_board, current_player)
+            
+            # Backpropagation
+            while node:
+                node.visits += 1
+                if winner:
+                    if type(self).__name__ == winner:
+                        node.wins += 1
+                node = node.parent
+        
+        # Choose best move
+        best_move = max(root.children.items(), 
+                       key=lambda x: x[1].visits)[0]
+        return best_move
+    
+    def _get_next_row(self, board: List[List[str]], col: int) -> int:
+        """Get the next available row in the given column"""
+        for row in range(len(board)-1, -1, -1):
+            if board[row][col] == ' ':
+                return row
+        return -1
+    
+    def _simulate_game(self, board: List[List[str]], current_player: str) -> Optional[str]:
+        """Simulate a random game from the current position"""
+        temp_board = [row[:] for row in board]
+        player = current_player
+        
+        while True:
+            # Get valid moves
+            valid_moves = []
+            for col in range(len(temp_board[0])):
+                if temp_board[0][col] == ' ':
+                    valid_moves.append(col)
+            
+            if not valid_moves:
+                return None  # Tie game
+            
+            # Make random move
+            col = random.choice(valid_moves)
+            row = self._get_next_row(temp_board, col)
+            temp_board[row][col] = player
+            
+            # Check for winner
+            if self._check_winner(temp_board, row, col):
+                return 'MCTSPlayer' if player == self.symbol else 'Opponent'
+            
+            player = 'O' if player == 'X' else 'X'
+    
+    def _check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if the last move created a winning condition"""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+        
+        for dr, dc in directions:
+            count = 1
+            
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (0 <= r < len(board) and 0 <= c < len(board[0]) and 
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r + dr, c + dc
+            
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (0 <= r < len(board) and 0 <= c < len(board[0]) and 
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r - dr, c - dc
+            
+            if count >= 4:
+                return True
+        return False
+
+
+
 # Example player implementations
 class RandomPlayer(Player):
     """Makes random valid moves"""
@@ -468,7 +629,7 @@ class Tournament:
 
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [RandomPlayer, SimplePlayer, LousyPlayer]
+    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, MCTSPlayer]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
