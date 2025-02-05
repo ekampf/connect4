@@ -575,6 +575,155 @@ class LousyPlayer(Player):
                 return True
         return False
 
+class FlossyPlayer(Player):
+    """Looks for winning moves and blocking moves"""
+
+    def get_move(self, state: GameState) -> int:
+        columns = len(state.board[0])
+        rows = len(state.board)
+
+        # First check for winning moves
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            # Find row where piece would land
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            # Try move
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = self.symbol
+
+            # Check if this move wins
+            if self.check_winner(test_board, row, col):
+                return col
+
+            test_board[row][col] = ' '
+
+        # Then check for blocking moves
+        opponent = 'O' if self.symbol == 'X' else 'X'
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = opponent
+
+            if self.check_winner(test_board, row, col):
+                return col
+
+            test_board[row][col] = ' '
+
+        # Then check for move that will force winning
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            # Find row where piece would land
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            # Try move
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = self.symbol
+
+            # Check if this move wins
+            if self.check_future_winner(test_board, row, col):
+                return col
+
+            test_board[row][col] = ' '
+
+        # Then check for move that will force losing
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = opponent
+
+            if self.check_future_winner(test_board, row, col):
+                return col
+
+            test_board[row][col] = ' '
+
+        # Otherwise, pick random valid move
+        valid_moves = [
+            col for col in range(columns)
+            if state.board[0][col] == ' '
+        ]
+        return random.choice(valid_moves)
+
+    def check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if there's a winner on the test board"""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+        columns = len(board[0])
+        rows = len(board)
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 4:
+                return True
+        return False
+
+    def check_future_winner(self, board: List[List[str]], row, col) -> bool:
+        """Check if there's a move that will lead to an unavoidable winner"""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+        columns = len(board[0])
+        rows = len(board)
+        winning_moves_number = 0
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 3:
+                winning_moves_number += len([i for i in (board[r + dr][c + dc], board[r - dr][c - dc]) if i == ' '])
+                if winning_moves_number >= 1:
+                    return True
+
+        return False
+
 
 import math
 
@@ -863,7 +1012,7 @@ class Tournament:
 
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, MCTSPlayer, Bob]
+    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, MCTSPlayer, Bob, FlossyPlayer]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
