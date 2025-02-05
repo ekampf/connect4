@@ -381,6 +381,158 @@ class LousyPlayer(Player):
                 return True
         return False
 
+class SophiesPlayer(Player):
+    """Looks for winning moves and blocking moves"""
+
+    def __init__(self, symbol: str):
+        super().__init__(symbol)
+        self.opponent = "X" if symbol == "O" else "O"
+
+    def get_move(self, state: GameState) -> int:
+        columns = len(state.board[0])
+        rows = len(state.board)
+
+        # First check for winning moves
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            # Find row where piece would land
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            # Try move
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = self.symbol
+
+            # Check if this move wins
+            if self.check_winner(test_board, row, col):
+                return col
+
+        valid_moves = [
+            col for col in range(columns)
+            if state.board[0][col] == ' '
+        ]
+
+        # Alpha-Beta Pruning
+        best_move = -1
+        best_score = -math.inf
+        alpha = -math.inf
+        beta = math.inf
+
+        for move in valid_moves:
+            new_state = self.make_move(state, move, self.symbol)
+            score = self.alpha_beta(new_state, depth=2, alpha=alpha, beta=beta, maximizing=False)
+            if score > best_score:
+                best_score = score
+                best_move = move
+            alpha = max(alpha, score)
+
+        return best_move
+
+    def alpha_beta(self, state: GameState, depth, alpha, beta, maximizing):
+        if depth == 0 or self.is_terminal(state):
+            return self.heuristic_evaluation(state.board, self.symbol)
+
+        valid_moves = [col for col in range(len(state.board[0])) if state.board[0][col] == ' ']
+
+        if maximizing:
+            max_eval = -math.inf
+            for move in valid_moves:
+                new_state = self.make_move(state, move, self.symbol)
+                eval_score = self.alpha_beta(new_state, depth - 1, alpha, beta, False)
+                max_eval = max(max_eval, eval_score)
+                alpha = max(alpha, eval_score)
+                if beta <= alpha:
+                    break  # Beta cutoff
+            return max_eval
+        else:
+            min_eval = math.inf
+            for move in valid_moves:
+                new_state = self.make_move(state, move, self.opponent)
+                eval_score = self.alpha_beta(new_state, depth - 1, alpha, beta, True)
+                min_eval = min(min_eval, eval_score)
+                beta = min(beta, eval_score)
+                if beta <= alpha:
+                    break  # Alpha cutoff
+            return min_eval
+
+    def make_move(self, state: GameState, col, symbol):
+        """Creates a new board state with a move applied."""
+        new_state = copy.deepcopy(state)
+        for row in range(len(state.board) - 1, -1, -1):
+            if new_state.board[row][col] == ' ':
+                new_state.board[row][col] = symbol
+                break
+        return new_state
+
+    def is_terminal(self, state: GameState):
+        """Checks if the game is over (win or draw)."""
+        return not any(' ' in row for row in state.board)
+
+    @staticmethod
+    def heuristic_evaluation(board, player):
+        opponent = "X" if player == "O" else "O"
+        rows, cols = len(board), len(board[0])
+
+        def check_sequence(sequence, player):
+            """Assign scores based on the number of player pieces in a sequence."""
+            score = 0
+            if sequence.count(player) == 4:
+                score += 1000  # Winning move
+            elif sequence.count(player) == 3 and sequence.count(" ") == 1:
+                score += 100  # Potential win
+            elif sequence.count(player) == 2 and sequence.count(" ") == 2:
+                score += 10  # Good setup
+            if sequence.count(opponent) == 3 and sequence.count(" ") == 1:
+                score -= 100  # Block opponent
+            return score
+
+        total_score = 0
+
+        # Check all possible lines (rows, columns, diagonals)
+        for r in range(rows):
+            for c in range(cols):
+                if c + 3 < cols:
+                    total_score += check_sequence([board[r][c + i] for i in range(4)], player)  # Horizontal
+                if r + 3 < rows:
+                    total_score += check_sequence([board[r + i][c] for i in range(4)], player)  # Vertical
+                if r + 3 < rows and c + 3 < cols:
+                    total_score += check_sequence([board[r + i][c + i] for i in range(4)], player)  # Diagonal /
+                if r - 3 >= 0 and c + 3 < cols:
+                    total_score += check_sequence([board[r - i][c + i] for i in range(4)], player)  # Diagonal \
+
+        return total_score
+
+    def check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if there's a winner on the test board"""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+        columns = len(board[0])
+        rows = len(board)
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 4:
+                return True
+        return False
+
 class Tournament:
     """Runs a tournament between multiple Connect Four strategies"""
     def __init__(self, strategy_classes: List[type], games_per_match: int = 10):
