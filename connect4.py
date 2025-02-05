@@ -178,7 +178,7 @@ class ConnectFour:
                 row, col = self.make_move(col)
                 
             except Exception as e:
-                print(f"Error from player {self.current_player.symbol}: {e}")
+                print(f"Error from player {self.current_player.symbol} ({type(self.current_player).__name__}): {e}")
                 return self.player1 if self.current_player == self.player2 else self.player2
             
             # Check for winner
