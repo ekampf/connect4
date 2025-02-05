@@ -236,6 +236,165 @@ class ConnectFour:
             if self.delay:
                 time.sleep(self.delay)
 
+class MCTSNode:
+    def __init__(self, state: GameState, parent=None, move=None):
+        self.state = state
+        self.parent = parent
+        self.move = move  # Move that led to this state
+        self.children = {}
+        self.wins = 0
+        self.visits = 0
+        self.untried_moves = self._get_valid_moves()
+        
+    def _get_valid_moves(self) -> List[int]:
+        """Get list of valid moves from current state"""
+        return [col for col in range(len(self.state.board[0])) 
+                if self.state.board[0][col] == ' ']
+    
+    def ucb1(self, exploration: float = 1.41) -> float:
+        """Calculate UCB1 value for this node"""
+        if self.visits == 0:
+            return float('inf')
+        return (self.wins / self.visits + 
+                exploration * math.sqrt(math.log(self.parent.visits) / self.visits))
+
+# The MCTSPlayer uses the Monte Carlo Tree Search algorithm, which is a probabilistic search algorithm that finds optimal decisions by building a search tree through random sampling of the decision space. The algorithm consists of four main phases that repeat until a time limit is reached:
+#
+# 1. **Selection**
+#    - Starting from the root node (current game state)
+#    - Uses UCB1 (Upper Confidence Bound 1) formula to balance exploration vs exploitation
+#    - Traverses down the tree, selecting nodes with highest UCB1 scores
+#    - Continues until reaching a node that hasn't been fully explored
+#
+# 2. **Expansion**
+#    - When reaching a node that hasn't been fully explored
+#    - Creates a new child node for one of the unexplored moves
+#    - Adds this new node to the tree
+#
+# 3. **Simulation**
+#    - From the new node position
+#    - Plays out a complete game using random moves
+#    - This is called a "rollout" or "playout"
+#
+# 4. **Backpropagation**
+#    - Takes the result of the simulation
+#    - Updates statistics (visits and wins) for all nodes in the path from the simulated node back to the root
+
+
+class MCTSPlayer(Player):
+    """Monte Carlo Tree Search player implementation"""
+    def __init__(self, symbol: str, simulation_time: float = 0.9):
+        super().__init__(symbol)
+        self.simulation_time = simulation_time
+    
+    def get_move(self, state: GameState) -> int:
+        root = MCTSNode(state)
+        end_time = time.time() + self.simulation_time
+        
+        while time.time() < end_time:
+            # Selection
+            node = root
+            temp_board = [row[:] for row in state.board]
+            current_player = self.symbol
+            
+            # Select a path through the tree
+            while node.untried_moves == [] and node.children:
+                node = max(node.children.values(), key=lambda n: n.ucb1())
+                if node.move is not None:
+                    row = self._get_next_row(temp_board, node.move)
+                    temp_board[row][node.move] = current_player
+                    current_player = 'O' if current_player == 'X' else 'X'
+            
+            # Expansion
+            if node.untried_moves:
+                col = random.choice(node.untried_moves)
+                row = self._get_next_row(temp_board, col)
+                temp_board[row][col] = current_player
+                current_player = 'O' if current_player == 'X' else 'X'
+                
+                new_state = GameState(
+                    board=[row[:] for row in temp_board],
+                    current_player=current_player
+                )
+                node.untried_moves.remove(col)
+                node.children[col] = MCTSNode(new_state, parent=node, move=col)
+                node = node.children[col]
+            
+            # Simulation
+            winner = self._simulate_game(temp_board, current_player)
+            
+            # Backpropagation
+            while node:
+                node.visits += 1
+                if winner:
+                    if type(self).__name__ == winner:
+                        node.wins += 1
+                node = node.parent
+        
+        # Choose best move
+        best_move = max(root.children.items(), 
+                       key=lambda x: x[1].visits)[0]
+        return best_move
+    
+    def _get_next_row(self, board: List[List[str]], col: int) -> int:
+        """Get the next available row in the given column"""
+        for row in range(len(board)-1, -1, -1):
+            if board[row][col] == ' ':
+                return row
+        return -1
+    
+    def _simulate_game(self, board: List[List[str]], current_player: str) -> Optional[str]:
+        """Simulate a random game from the current position"""
+        temp_board = [row[:] for row in board]
+        player = current_player
+        
+        while True:
+            # Get valid moves
+            valid_moves = []
+            for col in range(len(temp_board[0])):
+                if temp_board[0][col] == ' ':
+                    valid_moves.append(col)
+            
+            if not valid_moves:
+                return None  # Tie game
+            
+            # Make random move
+            col = random.choice(valid_moves)
+            row = self._get_next_row(temp_board, col)
+            temp_board[row][col] = player
+            
+            # Check for winner
+            if self._check_winner(temp_board, row, col):
+                return 'MCTSPlayer' if player == self.symbol else 'Opponent'
+            
+            player = 'O' if player == 'X' else 'X'
+    
+    def _check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if the last move created a winning condition"""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+        
+        for dr, dc in directions:
+            count = 1
+            
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (0 <= r < len(board) and 0 <= c < len(board[0]) and 
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r + dr, c + dc
+            
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (0 <= r < len(board) and 0 <= c < len(board[0]) and 
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r - dr, c - dc
+            
+            if count >= 4:
+                return True
+        return False
+
 
 # Example player implementations
 class RandomPlayer(Player):
@@ -414,6 +573,335 @@ class LousyPlayer(Player):
                 return True
         return False
 
+class FlossyPlayer(Player):
+    """Looks for winning moves and blocking moves"""
+
+    def get_move(self, state: GameState) -> int:
+        columns = len(state.board[0])
+        rows = len(state.board)
+
+        # First check for winning moves
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            # Find row where piece would land
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            # Try move
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = self.symbol
+
+            # Check if this move wins
+            if self.check_winner(test_board, row, col):
+                return col
+
+            test_board[row][col] = ' '
+
+        # Then check for blocking moves
+        opponent = 'O' if self.symbol == 'X' else 'X'
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = opponent
+
+            if self.check_winner(test_board, row, col):
+                return col
+
+            test_board[row][col] = ' '
+
+        # Then check for move that will force winning
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            # Find row where piece would land
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            # Try move
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = self.symbol
+
+            # Check if this move wins
+            if self.check_future_winner(test_board, row, col):
+                return col
+
+            test_board[row][col] = ' '
+
+        # Then check for move that will force losing
+        for col in range(columns):
+            if state.board[0][col] != ' ':
+                continue
+
+            row = rows - 1
+            while row >= 0 and state.board[row][col] != ' ':
+                row -= 1
+
+            test_board = [row[:] for row in state.board]
+            test_board[row][col] = opponent
+
+            if self.check_future_winner(test_board, row, col):
+                return col
+
+            test_board[row][col] = ' '
+
+        # Otherwise, pick random valid move
+        valid_moves = [
+            col for col in range(columns)
+            if state.board[0][col] == ' '
+        ]
+        return random.choice(valid_moves)
+
+    def check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if there's a winner on the test board"""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+        columns = len(board[0])
+        rows = len(board)
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 4:
+                return True
+        return False
+
+    def check_future_winner(self, board: List[List[str]], row, col) -> bool:
+        """Check if there's a move that will lead to an unavoidable winner"""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+        columns = len(board[0])
+        rows = len(board)
+        winning_moves_number = 0
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while (0 <= r < rows and 0 <= c < columns and
+                   board[r][c] == symbol):
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 3:
+                winning_moves_number += len([i for i in (board[r + dr][c + dc], board[r - dr][c - dc]) if i == ' '])
+                if winning_moves_number >= 1:
+                    return True
+
+        return False
+
+
+import math
+
+import random
+import math
+from typing import List
+
+import random
+import math
+import time
+from typing import List
+
+import random
+import math
+import time
+from typing import List
+
+
+class Bob(Player):
+    """Improved AI: Uses minimax with alpha-beta pruning, advanced heuristics, and dynamic depth."""
+
+    def __init__(self, symbol, depth=4):
+        super().__init__(symbol)
+        self.depth = depth  # Search depth for minimax
+
+    def get_move(self, state: GameState) -> int:
+        board = np.array(state.board)  # Convert to NumPy array for efficiency
+
+        # 1. Check for immediate winning move
+        for col in self.get_valid_moves(board):
+            row = self.get_drop_row(board, col)
+            if row is None:
+                continue
+
+            board[row, col] = self.symbol
+            if self.check_winner(board, row, col):
+                return col  # Win immediately
+            board[row, col] = ' '  # Undo test move
+
+        # 2. Check for opponent's winning move and block it
+        opponent = 'O' if self.symbol == 'X' else 'X'
+        for col in self.get_valid_moves(board):
+            row = self.get_drop_row(board, col)
+            if row is None:
+                continue
+
+            board[row, col] = opponent
+            if self.check_winner(board, row, col):
+                return col  # Block the opponent
+            board[row, col] = ' '  # Undo test move
+
+        # 3. Use minimax with alpha-beta pruning to find the best move
+        best_move, _ = self.minimax(board, self.depth, -float('inf'), float('inf'), True)
+        return best_move if best_move is not None else random.choice(self.get_valid_moves(board))
+
+    def minimax(self, board, depth, alpha, beta, maximizing_player):
+        """Minimax algorithm with alpha-beta pruning."""
+        valid_moves = self.get_valid_moves(board)
+
+        # Base cases: terminal state or depth limit reached
+        if depth == 0 or not valid_moves:
+            return None, self.evaluate_board(board)
+
+        if maximizing_player:
+            max_eval = -float('inf')
+            best_move = None
+
+            for col in valid_moves:
+                row = self.get_drop_row(board, col)
+                if row is None:
+                    continue
+
+                board[row, col] = self.symbol
+                _, eval = self.minimax(board, depth - 1, alpha, beta, False)
+                board[row, col] = ' '  # Undo test move
+
+                if eval > max_eval:
+                    max_eval = eval
+                    best_move = col
+
+                alpha = max(alpha, eval)
+                if beta <= alpha:
+                    break  # Beta cutoff
+
+            return best_move, max_eval
+        else:
+            min_eval = float('inf')
+            best_move = None
+
+            for col in valid_moves:
+                row = self.get_drop_row(board, col)
+                if row is None:
+                    continue
+
+                board[row, col] = 'O' if self.symbol == 'X' else 'X'
+                _, eval = self.minimax(board, depth - 1, alpha, beta, True)
+                board[row, col] = ' '  # Undo test move
+
+                if eval < min_eval:
+                    min_eval = eval
+                    best_move = col
+
+                beta = min(beta, eval)
+                if beta <= alpha:
+                    break  # Alpha cutoff
+
+            return best_move, min_eval
+
+    def evaluate_board(self, board):
+        """Evaluate the board position for the AI player."""
+        score = 0
+
+        # Favor center control
+        center_col = board.shape[1] // 2
+        for col in range(board.shape[1]):
+            if board[0, col] == ' ':
+                score += 3 - abs(center_col - col)
+
+        # Evaluate connections
+        for row in range(board.shape[0]):
+            for col in range(board.shape[1]):
+                if board[row, col] == self.symbol:
+                    score += self.count_connections(board, row, col)
+                elif board[row, col] != ' ':
+                    score -= self.count_connections(board, row, col)
+
+        return score
+
+    def count_connections(self, board, row, col):
+        """Counts connected pieces for a given position."""
+        symbol = board[row, col]
+        directions = [(1, 0), (0, 1), (1, 1), (1, -1)]
+        total = 0
+
+        for dr, dc in directions:
+            count = 1
+            for i in range(1, 4):
+                r, c = row + dr * i, col + dc * i
+                if 0 <= r < board.shape[0] and 0 <= c < board.shape[1] and board[r, c] == symbol:
+                    count += 1
+                else:
+                    break
+            total += count ** 2  # Favor longer streaks
+
+        return total
+
+    def get_valid_moves(self, board):
+        """Returns a list of valid (non-full) columns."""
+        return [col for col in range(board.shape[1]) if board[0, col] == ' ']
+
+    def get_drop_row(self, board, col):
+        """Find the lowest available row for a given column."""
+        for row in range(board.shape[0] - 1, -1, -1):
+            if board[row, col] == ' ':
+                return row
+        return None
+
+    def check_winner(self, board: List[List[str]], row: int, col: int) -> bool:
+        """Check if there's a winner on the test board."""
+        directions = [(0, 1), (1, 0), (1, 1), (1, -1)]
+        symbol = board[row][col]
+
+        for dr, dc in directions:
+            count = 1
+
+            # Check positive direction
+            r, c = row + dr, col + dc
+            while 0 <= r < board.shape[0] and 0 <= c < board.shape[1] and board[r][c] == symbol:
+                count += 1
+                r, c = r + dr, c + dc
+
+            # Check negative direction
+            r, c = row - dr, col - dc
+            while 0 <= r < board.shape[0] and 0 <= c < board.shape[1] and board[r][c] == symbol:
+                count += 1
+                r, c = r - dr, c - dc
+
+            if count >= 4:
+                return True
+        return False
 
 from copy import deepcopy
 
@@ -656,7 +1144,7 @@ class Tournament:
 
 if __name__ == "__main__":
     # Create tournament with list of strategies
-    strategies = [SimplePlayer, NeedMoreGluePlayer]
+    strategies = [RandomPlayer, SimplePlayer, LousyPlayer, MCTSPlayer, Bob, FlossyPlayer, NeedMoreGluePlayer]
     tournament = Tournament(strategies, games_per_match=10)
 
     # Run tournament
